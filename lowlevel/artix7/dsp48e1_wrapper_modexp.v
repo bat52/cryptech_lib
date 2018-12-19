@@ -36,7 +36,7 @@
 //
 //------------------------------------------------------------------------------
 
-module modexpa7_dsp48e1_wrapper_modexp #
+module dsp48e1_wrapper_modexp #
 	(
 		parameter	AREG		= 1'b0,
 		parameter	PREG		= 1'b0,

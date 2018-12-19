@@ -1,12 +1,12 @@
 //------------------------------------------------------------------------------
 //
-// modexp_systolic_pe_artix7.v
+// adder32_ce_generic.v
 // -----------------------------------------------------------------------------
-// Hardware (Artix-7 DSP48E1) low-level systolic array processing element.
+// Generic 32-bit adder w/ clock enable.
 //
 // Authors: Pavel Shatov
 //
-// Copyright (c) 2016-2017, NORDUnet A/S
+// Copyright (c) 2016, 2018 NORDUnet A/S
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
@@ -36,85 +36,30 @@
 //
 //------------------------------------------------------------------------------
 
-module modexp_systolic_pe_artix7
-	(
-		input					clk,
-		input		[31: 0]	a,
-		input		[31: 0]	b,
-		input		[31: 0]	t,
-		input		[31: 0]	c_in,
-		output	[31: 0]	p,
-		output	[31: 0]	c_out
-	);
-	
-	reg	[31: 0]	t_dly;
-	reg	[31: 0]	c_in_dly;
-	
-	always @(posedge clk) t_dly <= t;
-	always @(posedge clk) c_in_dly <= c_in;
-	
-	wire	[31: 0]	t_c_in_s;
-	wire				t_c_in_c_out;
-	
-	reg				t_c_in_c_out_dly;
-	
-	always @(posedge clk) t_c_in_c_out_dly <= t_c_in_c_out;
-	
-	adder32_artix7 add_t_c_in
-	(
-		.clk		(clk),
-		.a			(t_dly),
-		.b			(c_in_dly),
-		.c_in		(1'b0),
-		.s			(t_c_in_s),
-		.c_out	(t_c_in_c_out)
-	);
+module adder32_ce_generic
+  (
+   input 	  clk, // clock
+   input      ce, // clock enable
+   input [31: 0]  a, // operand input
+   input [31: 0]  b, // operand input
+   output [31: 0] s, // sum output
+   input 	  c_in, // carry input
+   output 	  c_out		// carry output
+   );
 
-	wire	[63: 0]	a_b;
-	
-	wire	[31: 0]	a_b_lsb = a_b[31: 0];
-	wire	[31: 0]	a_b_msb = a_b[63:32];
-	
-	reg	[31: 0]	a_b_msb_dly;
-	
-	always @(posedge clk) a_b_msb_dly <= a_b_msb;
-	
-	modexp_multiplier32_artix7 mul_a_b
-	(
-		.clk	(clk),
-		.a		(a),
-		.b		(b),
-		.p		(a_b)
-	);
-	
-	wire	[31: 0]	add_p_s;
-	wire				add_p_c_out;
-	
-	reg	[31: 0]	add_p_s_dly;
-	
-	always @(posedge clk) add_p_s_dly <= add_p_s;
-	
-	assign p = add_p_s_dly;
-	
-	adder32_artix7 add_p
-	(
-		.clk		(clk),
-		.a			(a_b_lsb),
-		.b			(t_c_in_s),
-		.c_in		(1'b0),
-		.s			(add_p_s),
-		.c_out	(add_p_c_out)
-	);
+   //
+   // Sum
+   //
+   reg [32: 0] 	  s_int;
 
-	adder32_artix7 add_c_out
-	(
-		.clk		(clk),
-		.a			(a_b_msb_dly),
-		.b			({{31{1'b0}}, t_c_in_c_out_dly}),
-		.c_in		(add_p_c_out),
-		.s			(c_out),
-		.c_out	()
-	);
+   always @(posedge clk)
+     if (ce) s_int <= {1'b0, a} + {1'b0, b} + {{32{1'b0}}, c_in};
+
+   //
+   // Output
+   //
+   assign s = s_int[31:0];
+   assign c_out = s_int[32];
 
 endmodule
 

@@ -1,8 +1,8 @@
 //------------------------------------------------------------------------------
 //
-// modexp_systolic_pe_artix7.v
+// modexp_multiplier32_artix7.v
 // -----------------------------------------------------------------------------
-// Hardware (Artix-7 DSP48E1) low-level systolic array processing element.
+// Hardware (Artix-7 DSP48E1) 32-bit multiplier.
 //
 // Authors: Pavel Shatov
 //
@@ -36,84 +36,132 @@
 //
 //------------------------------------------------------------------------------
 
-module modexp_systolic_pe_artix7
+module modexp_multiplier32_artix7
 	(
 		input					clk,
 		input		[31: 0]	a,
 		input		[31: 0]	b,
-		input		[31: 0]	t,
-		input		[31: 0]	c_in,
-		output	[31: 0]	p,
-		output	[31: 0]	c_out
-	);
-	
-	reg	[31: 0]	t_dly;
-	reg	[31: 0]	c_in_dly;
-	
-	always @(posedge clk) t_dly <= t;
-	always @(posedge clk) c_in_dly <= c_in;
-	
-	wire	[31: 0]	t_c_in_s;
-	wire				t_c_in_c_out;
-	
-	reg				t_c_in_c_out_dly;
-	
-	always @(posedge clk) t_c_in_c_out_dly <= t_c_in_c_out;
-	
-	adder32_artix7 add_t_c_in
-	(
-		.clk		(clk),
-		.a			(t_dly),
-		.b			(c_in_dly),
-		.c_in		(1'b0),
-		.s			(t_c_in_s),
-		.c_out	(t_c_in_c_out)
+		output	[63: 0]	p
 	);
 
-	wire	[63: 0]	a_b;
-	
-	wire	[31: 0]	a_b_lsb = a_b[31: 0];
-	wire	[31: 0]	a_b_msb = a_b[63:32];
-	
-	reg	[31: 0]	a_b_msb_dly;
-	
-	always @(posedge clk) a_b_msb_dly <= a_b_msb;
-	
-	modexp_multiplier32_artix7 mul_a_b
-	(
-		.clk	(clk),
-		.a		(a),
-		.b		(b),
-		.p		(a_b)
-	);
-	
-	wire	[31: 0]	add_p_s;
-	wire				add_p_c_out;
-	
-	reg	[31: 0]	add_p_s_dly;
-	
-	always @(posedge clk) add_p_s_dly <= add_p_s;
-	
-	assign p = add_p_s_dly;
-	
-	adder32_artix7 add_p
-	(
-		.clk		(clk),
-		.a			(a_b_lsb),
-		.b			(t_c_in_s),
-		.c_in		(1'b0),
-		.s			(add_p_s),
-		.c_out	(add_p_c_out)
-	);
+		/* split a, b into smaller words */
+	wire	[16: 0]	a_lo = a[16: 0];
+	wire	[16: 0]	b_lo = b[16: 0];
+	wire	[14: 0]	a_hi = a[31:17];
+	wire	[14: 0]	b_hi = b[31:17];
 
-	adder32_artix7 add_c_out
+		/* smaller sub-products */
+	wire	[47: 0]	dsp1_p;
+	wire	[47: 0]	dsp2_p;
+	wire	[47: 0]	dsp4_p;
+
+		/* direct output mapping */
+	assign p[63:34] = dsp4_p[29: 0];
+	
+		/* delayed output mapping */
+	genvar fd;
+	generate for (fd=0; fd<17; fd=fd+1)
+		begin : gen_FD
+			FD # (.INIT( 1'b0)) FD_inst1 (.C(clk), .D(dsp1_p[fd]), .Q(p[fd +  0]));
+			FD # (.INIT( 1'b0)) FD_inst3 (.C(clk), .D(dsp2_p[fd]), .Q(p[fd + 17]));
+		end
+	endgenerate
+
+		/* product chains */
+	wire	[47: 0]	dsp1_p_chain;
+	wire	[47: 0]	dsp3_p_chain;
+	wire	[47: 0]	dsp2_p_chain;
+	
+		/* operand chains */
+	wire	[29: 0]	a_lo_chain;
+	wire	[29: 0]	a_hi_chain;  
+  
+		//
+		// a_lo * b_lo
+		//
+	dsp48e1_wrapper_modexp #
+	(
+		.AREG			(1'b1),
+		.PREG			(1'b0),
+		.A_INPUT		("DIRECT")
+	)
+	dsp1
 	(
 		.clk		(clk),
-		.a			(a_b_msb_dly),
-		.b			({{31{1'b0}}, t_c_in_c_out_dly}),
-		.c_in		(add_p_c_out),
-		.s			(c_out),
-		.c_out	()
+		.opmode	(7'b0110101),
+		.a			({13'd0, a_lo}),
+		.b			({1'b0, b_lo}),
+		.p			(dsp1_p),
+		.acin		(30'd0),
+		.pcin		(48'd0),
+		.acout	(a_lo_chain),
+		.pcout	(dsp1_p_chain)
+	);
+	
+		//
+		// a_hi * b_lo
+		//
+	dsp48e1_wrapper_modexp #
+	(
+		.AREG			(1'b1),
+		.PREG			(1'b0),
+		.A_INPUT		("DIRECT")
+	)
+	dsp2
+	(
+		.clk		(clk),
+		.opmode	(7'b0010101),
+		.a			({15'd0, a_hi}),
+		.b			({1'd0, b_lo}),
+		.p			(dsp2_p),
+		.acin		(30'd0),
+		.pcin		(dsp3_p_chain),
+		.acout	(a_hi_chain),
+		.pcout	(dsp2_p_chain)
+	);
+	
+		//
+		// a_lo * b_hi
+		//
+	dsp48e1_wrapper_modexp #
+	(
+		.AREG			(1'b0),
+		.PREG			(1'b0),
+		.A_INPUT		("CASCADE")
+	)
+	dsp3
+	(
+		.clk		(clk),
+		.opmode	(7'b1010101),
+		.a			(30'd0),
+		.b			({3'd0, b_hi}),
+		.p			(),
+		.acin		(a_lo_chain),
+		.pcin		(dsp1_p_chain),
+		.acout	(),
+		.pcout	(dsp3_p_chain)
+	);	
+	
+		//
+		// a_hi * b_hi
+		//
+	dsp48e1_wrapper_modexp #
+	(
+		.AREG			(1'b0),
+		.PREG			(1'b1),
+		.A_INPUT		("CASCADE")
+	)
+	dsp4
+	(
+		.clk		(clk),
+		.opmode	(7'b1010101),
+		.a			(30'd0),
+		.b			({3'd0, b_hi}),
+		.p			(dsp4_p),
+		.acin		(a_hi_chain),
+		.pcin		(dsp2_p_chain),
+		.acout	(),
+		.pcout	()
 	);
 
 endmodule
