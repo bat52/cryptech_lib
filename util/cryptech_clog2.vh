@@ -30,15 +30,16 @@
 //
 //======================================================================
 
-function    integer cryptech_clog2;
-    input   integer value;
-            integer result;
+function integer cryptech_clog2;
+   input integer value_in;
+         integer value;
+         integer result;
     //
     begin
-        value = value - 1;
+        value = value_in - 1;
         for (result = 0; value > 0; result = result + 1)
             value = value >> 1;
-        clog2 = result;
+        cryptech_clog2 = result;
     end
     //
 endfunction
