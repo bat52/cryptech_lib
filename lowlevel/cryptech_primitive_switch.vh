@@ -43,7 +43,7 @@
    
 
     // generic/vendor switch
-`define CRYPTECH_USE_VENDOR_PRIMITIVES
+// `define CRYPTECH_USE_VENDOR_PRIMITIVES
 
 
     //
